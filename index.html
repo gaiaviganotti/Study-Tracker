@@ -13,17 +13,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
-    <!-- CSS originale da Kuse -->
+    <!-- CSS di Kuse -->
     <link rel="stylesheet" crossorigin href="https://static.kusesite.com/assets/index-C7v-s4oy.css">
 
-    <!-- Script di Sincronizzazione Automatica Cloud da Supabase -->
+    <!-- Script di Sincronizzazione Automatica Supabase -->
     <script>
       (async function syncOnLoad() {
         try {
           const res = await fetch("https://fgimdeizmnywxkrvqgbt.supabase.co/rest/v1/widget_snapshots?id=eq.4o2g2m3z4p6k315n313i514c0m4b371i&select=data", {
             headers: {
               "apikey": "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps",
-              "Authorization": "Bearer eyJhbGciOiJFUzI1NiIsImtpZCI6IjliMjI0YWNlLWI3ZDgtNGZhNC04ZjBjLWY2MmVmNTBjYWY3NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDkyNTA5OTQsImlhdCI6MTc5Mzg5MDk5NCwiaXNzIjoic3VwYWJhc2UiLCJyZWYiOiJmZ2ltZGVpem1ueXd4a3J2cWdidCIsInJvbGUiOiJwcmRfc2l0ZV9uOWhpMG5rYWl3azQifQ.GZKQvtL2VdF4Z1FQULgCJeYnYMtMp5bhQpoGOUVqhq4Vh_icsjnL26SNphloSz1KuhAQagQjYwFyGi3xmspT5g",
+              "Authorization": "Bearer eyJhbGciOiJFUzI1NiIsImtpZCI6IjliMjI0YWNlLWI3ZDgtNGZhNC04ZjBjLWY2MmVmNTBjYWY3NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDkyNTA5OTQsImlhdCI6MTc5Mzg5MDk5NCwiaXNzIjoic3VwYWJhc2UiLCJyZWYiOiJmZ2ltZGVpem1ueXd4a3J2cWdidCIsInRvbGUiOiJwcmRfc2l0ZV9uOWhpMG5rYWl3azQifQ.GZKQvtL2VdF4Z1FQULgCJeYnYMtMp5bhQpoGOUVqhq4Vh_icsjnL26SNphloSz1KuhAQagQjYwFyGi3xmspT5g",
               "Accept-Profile": "prd_site_n9hi0nkaiwk4"
             }
           });
@@ -45,7 +45,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- JS caricato direttamente -->
-    <script type="module" crossorigin src="https://n9hi0nkaiwk4.kusesite.com/assets/index-v-hcNyMY.js"></script>
+    <!-- Richiamo al file JS Locale appena caricato -->
+    <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
   </body>
 </html>
