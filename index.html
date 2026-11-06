@@ -27,72 +27,67 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script di Sincronizzazione Supabase -->
+    <!-- Script Sincronizzazione Cloud Pulita (JSONBin) -->
     <script>
-      const RECORD_ID = "4o2g2m3z4p6k315n313i514c0m4b371i";
-      const SUPABASE_URL = `https://fgimdeizmnywxkrvqgbt.supabase.co/rest/v1/widget_snapshots?id=eq.${RECORD_ID}`;
-      const API_KEY = "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps";
+      const BIN_ID = "6aeddafaac6210605a726c11";
+      const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
 
-      const SUPABASE_HEADERS = {
-        "apikey": API_KEY,
-        "Accept-Profile": "prd_site_n9hi0nkaiwk4",
-        "Content-Profile": "prd_site_n9hi0nkaiwk4",
-        "Content-Type": "application/json"
+      const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+      const JSONBIN_HEADERS = {
+        "Content-Type": "application/json",
+        "X-Master-Key": API_KEY
       };
 
-      // 1. CARICAMENTO DATI ALL'AVVIO (Lettura)
+      // 1. LETTURA DATI ALL'AVVIO
       (async function syncOnLoad() {
         try {
-          const res = await fetch(`${SUPABASE_URL}&select=data`, { headers: SUPABASE_HEADERS });
+          const res = await fetch(JSONBIN_URL + "/latest", { headers: JSONBIN_HEADERS });
           if (!res.ok) {
-            console.error("❌ Errore HTTP Lettura:", res.status, await res.text());
+            console.error("❌ Errore lettura cloud:", res.status);
             return;
           }
-          const rows = await res.json();
-          if (rows && rows[0] && rows[0].data) {
-            const dataObj = rows[0].data;
-            const dataStr = JSON.stringify(dataObj);
-            
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
+          const data = await res.json();
+          if (data && data.record && Object.keys(data.record).length > 0 && !data.record.tracker) {
+            const dataStr = JSON.stringify(data.record);
+            Object.keys(localStorage).forEach(key => {
+              if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
                 localStorage.setItem(key, dataStr);
               }
-            }
+            });
             if (localStorage.length === 0) {
               localStorage.setItem("study_tracker_data", dataStr);
             }
-            console.log("✅ Dati letti con successo da Supabase!");
+            console.log("✅ Dati sincronizzati con successo da JSONBin!");
           }
         } catch (e) {
-          console.error("❌ Errore sync lettura Supabase:", e);
+          console.error("❌ Errore sync lettura:", e);
         }
       })();
 
-      // 2. SALVATAGGIO AUTOMATICO AD OGNI MODIFICA (Scrittura)
+      // 2. SCRITTURA AUTOMATICA AD OGNI MODIFICA
       const originalSetItem = localStorage.setItem;
       let syncTimeout = null;
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-        
+
         if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
           clearTimeout(syncTimeout);
           syncTimeout = setTimeout(async () => {
             try {
               let parsedData = typeof value === "string" ? JSON.parse(value) : value;
-              const response = await fetch(SUPABASE_URL, {
-                method: "PATCH",
-                headers: SUPABASE_HEADERS,
-                body: JSON.stringify({ data: parsedData })
+              const response = await fetch(JSONBIN_URL, {
+                method: "PUT",
+                headers: JSONBIN_HEADERS,
+                body: JSON.stringify(parsedData)
               });
               if (response.ok) {
-                console.log("✅ Dati inviati e salvati su Supabase!");
+                console.log("✅ Modifica salvata sul Cloud!");
               } else {
-                console.error("❌ Errore scrittura Supabase:", response.status, await response.text());
+                console.error("❌ Errore salvataggio cloud:", response.status);
               }
             } catch (e) {
-              console.error("❌ Errore invio Supabase:", e);
+              console.error("❌ Errore invio cloud:", e);
             }
           }, 400);
         }
