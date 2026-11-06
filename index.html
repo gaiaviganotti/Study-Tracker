@@ -27,7 +27,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Bidirezionale con Protezione Scrittura -->
+    <!-- Script Sincronizzazione Istantanea Immediata -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -38,12 +38,15 @@
         "X-Master-Key": API_KEY
       };
 
-      let isLocalUserAction = false;
-      let userActionTimer = null;
-      let lastKnownHash = "";
+      let isWriting = false;
+      let lastHash = "";
+      let lastTouchTime = 0;
 
-      // Raccoglie i dati locali
-      function getLocalDump() {
+      // Traccia le interazioni touch sul telefono per bloccare il reload improvviso
+      window.addEventListener("touchstart", () => { lastTouchTime = Date.now(); }, { passive: true });
+      window.addEventListener("click", () => { lastTouchTime = Date.now(); }, { passive: true });
+
+      function getAppState() {
         const dump = {};
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
@@ -52,30 +55,34 @@
         return dump;
       }
 
-      // 1. INVIA I DATI LOCALI AL CLOUD
-      async function pushToCloud() {
-        const dump = getLocalDump();
-        const strDump = JSON.stringify(dump);
-        if (strDump === "{}" || strDump === lastKnownHash) return;
+      // INVIA AL CLOUD ISTANTANEAMENTE
+      async function pushState() {
+        const state = getAppState();
+        const strState = JSON.stringify(state);
+        if (strState === "{}" || strState === lastHash) return;
+
+        lastHash = strState;
+        isWriting = true;
 
         try {
-          const res = await fetch(JSONBIN_URL, {
+          await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: strDump
+            body: strState,
+            keepalive: true
           });
-          if (res.ok) {
-            lastKnownHash = strDump;
-            console.log("✅ Salvo le modifiche sul Cloud!");
-          }
+          console.log("⚡ Salvato su Cloud!");
         } catch (e) {
-          console.error("❌ Errore scrittura Cloud:", e);
+          console.error("❌ Errore push:", e);
+        } finally {
+          setTimeout(() => { isWriting = false; }, 2000);
         }
       }
 
-      // 2. LEGGE I DATI DAL CLOUD (solo se l'utente non sta interagendo sul dispositivo)
-      async function pullFromCloud() {
-        if (isLocalUserAction) return; // Blocco sicurezza se stai toccando lo schermo
+      // LEGGE DAL CLOUD
+      async function pullState() {
+        // Se si è toccato lo schermo negli ultimi 6 secondi o si sta scrivendo, NON ricaricare
+        if (isWriting || (Date.now() - lastTouchTime < 6000)) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
@@ -85,57 +92,25 @@
             const remoteDump = data.record;
             const remoteStr = JSON.stringify(remoteDump);
 
-            if (remoteStr !== lastKnownHash && remoteStr !== "{}") {
-              let changed = false;
+            if (remoteStr !== lastHash && remoteStr !== "{}") {
+              let updated = false;
               Object.keys(remoteDump).forEach(k => {
                 if (localStorage.getItem(k) !== remoteDump[k]) {
                   localStorage.setItem(k, remoteDump[k]);
-                  changed = true;
+                  updated = true;
                 }
               });
 
-              if (changed) {
-                lastKnownHash = remoteStr;
-                console.log("🔄 Nuove modifiche rilevate dall'altro dispositivo, ricarico...");
+              if (updated) {
+                lastHash = remoteStr;
+                console.log("🔄 Ricevuto dal Cloud, aggiornamento vista...");
                 window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore lettura Cloud:", e);
+          console.error("❌ Errore pull:", e);
         }
       }
 
-      // Intercetta i click/modifiche sul dispositivo locale
-      const originalSetItem = localStorage.setItem;
-      let pushDebounce = null;
-
-      localStorage.setItem = function(key, value) {
-        originalSetItem.apply(this, arguments);
-
-        // Segnala che l'utente ha fatto un'azione locale: blocca pull per 5 secondi
-        isLocalUserAction = true;
-        clearTimeout(userActionTimer);
-        userActionTimer = setTimeout(() => { isLocalUserAction = false; }, 5000);
-
-        clearTimeout(pushDebounce);
-        pushDebounce = setTimeout(pushToCloud, 300);
-      };
-
-      // Avvio controlli
-      pullFromCloud();
-      setInterval(pullFromCloud, 4000);
-
-      // Sincronizzazione immediata all'uscita/rientro
-      window.addEventListener("pagehide", pushToCloud);
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") pushToCloud();
-        if (document.visibilityState === "visible") pullFromCloud();
-      });
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
-  </body>
-</html>
+      // Intercetta
