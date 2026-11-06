@@ -6,7 +6,7 @@
     <title>Study Tracker · Tabella di marcia</title>
     <meta name="theme-color" content="#F4ACB7" />
     
-    <!-- Configurazione Web App (Standard + iOS) -->
+    <!-- Configurazione Web App -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -17,7 +17,7 @@
     <!-- Web App Manifest -->
     <link rel="manifest" href="./manifest.json" />
 
-    <!-- Favicon standard -->
+    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
 
@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione JSONBin Sicuro -->
+    <!-- Script Sincronizzazione Anti-Crash con JSONBin -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -40,14 +40,16 @@
       };
 
       let isWriting = false;
-      let lastPayload = "";
-      let lastTouchTime = 0;
+      let lastKnownStr = "";
+      let lastUserInteraction = 0;
 
-      window.addEventListener("touchstart", () => { lastTouchTime = Date.now(); }, { passive: true });
-      window.addEventListener("click", () => { lastTouchTime = Date.now(); }, { passive: true });
+      // Traccia quando l'utente clicca o tocca lo schermo
+      const registerTouch = () => { lastUserInteraction = Date.now(); };
+      window.addEventListener("touchstart", registerTouch, { passive: true });
+      window.addEventListener("mousedown", registerTouch, { passive: true });
 
-      // Trova la chiave principale usata dall'app React
-      function getAppKey() {
+      // Trova la chiave di salvataggio usata da React
+      function detectStorageKey() {
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k && (k.includes("study") || k.includes("tracker") || k.includes("kuse") || k.includes("state"))) {
@@ -59,28 +61,21 @@
 
       // INVIA AL CLOUD
       async function pushState() {
-        const key = getAppKey();
-        const rawVal = localStorage.getItem(key);
-        if (!rawVal || rawVal === lastPayload) return;
+        const key = detectStorageKey();
+        const val = localStorage.getItem(key);
+        if (!val || val === lastKnownStr) return;
 
-        let dataToSave;
-        try {
-          dataToSave = JSON.parse(rawVal);
-        } catch(e) {
-          dataToSave = { raw: rawVal };
-        }
-
-        lastPayload = rawVal;
+        lastKnownStr = val;
         isWriting = true;
 
         try {
           await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: JSON.stringify(dataToSave),
+            body: JSON.stringify({ payload: val }),
             keepalive: true
           });
-          console.log("⚡ Dati inviati al Cloud!");
+          console.log("⚡ Modifica salvata sul Cloud!");
         } catch (e) {
           console.error("❌ Errore push:", e);
         } finally {
@@ -90,20 +85,22 @@
 
       // LEGGE DAL CLOUD
       async function pullState() {
-        if (isWriting || (Date.now() - lastTouchTime < 6000)) return;
+        // Se stiamo scrivendo o se l'utente ha toccato lo schermo negli ultimi 5 sec, non ricaricare
+        if (isWriting || (Date.now() - lastUserInteraction < 5000)) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
           if (!res.ok) return;
           const data = await res.json();
-          if (data && data.record && !data.record.tracker) {
-            const key = getAppKey();
-            const remoteVal = data.record.raw ? data.record.raw : JSON.stringify(data.record);
 
-            if (remoteVal !== localStorage.getItem(key) && remoteVal !== lastPayload) {
-              lastPayload = remoteVal;
+          if (data && data.record && data.record.payload) {
+            const remoteVal = data.record.payload;
+            const key = detectStorageKey();
+
+            if (remoteVal && remoteVal !== localStorage.getItem(key) && remoteVal !== lastKnownStr) {
+              lastKnownStr = remoteVal;
               localStorage.setItem(key, remoteVal);
-              console.log("🔄 Nuovi dati ricevuti, ricarico la vista...");
+              console.log("🔄 Dati aggiornati dal Cloud!");
               window.location.reload();
             }
           }
@@ -112,18 +109,28 @@
         }
       }
 
-      // Intercetta la scrittura locale senza bloccare l'interfaccia
+      // Intercetta la scrittura locale di React
       const originalSetItem = localStorage.setItem;
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
         if (!isWriting && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
-          lastTouchTime = Date.now();
+          lastUserInteraction = Date.now();
           pushState();
         }
       };
 
+      // Avvio
       pullState();
       setInterval(pullState, 4000);
 
       document.addEventListener("visibilitychange", () => {
-        if (document
+        if (document.visibilityState === "hidden") pushState();
+        if (document.visibilityState === "visible") pullState();
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
+  </body>
+</html>
