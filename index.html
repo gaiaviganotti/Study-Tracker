@@ -27,21 +27,22 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script di Sincronizzazione Supabase Corretto -->
+    <!-- Script di Sincronizzazione Supabase Bi-direzionale -->
     <script>
-      const SUPABASE_APIKEY = "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps";
-      const SUPABASE_URL = "https://fgimdeizmnywxkrvqgbt.supabase.co/rest/v1/widget_snapshots?id=eq.4o2g2m3z4p6k315n313i514c0m4b371i";
+      const RECORD_ID = "4o2g2m3z4p6k315n313i514c0m4b371i";
+      const SUPABASE_BASE = "https://fgimdeizmnywxkrvqgbt.supabase.co/rest/v1/widget_snapshots";
       
       const SUPABASE_HEADERS = {
-        "apikey": SUPABASE_APIKEY,
-        "Authorization": "Bearer " + SUPABASE_APIKEY,
+        "apikey": "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps",
+        "Authorization": "Bearer eyJhbGciOiJFUzI1NiIsImtpZCI6IjliMjI0YWNlLWI3ZDgtNGZhNC04ZjBjLWY2MmVmNTBjYWY3NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDkyNTA5OTQsImlhdCI6MTc5Mzg5MDk5NCwiaXNzIjoic3VwYWJhc2UiLCJyZWYiOiJmZ2ltZGVpem1ueXd4a3J2cWdidCIsInRvbGUiOiJwcmRfc2l0ZV9uOWhpMG5rYWl3azQifQ.GZKQvtL2VdF4Z1FQULgCJeYnYMtMp5bhQpoGOUVqhq4Vh_icsjnL26SNphloSz1KuhAQagQjYwFyGi3xmspT5g",
+        "Accept-Profile": "prd_site_n9hi0nkaiwk4",
         "Content-Type": "application/json"
       };
 
       // 1. CARICAMENTO DATI ALL'AVVIO
       (async function syncOnLoad() {
         try {
-          const res = await fetch(SUPABASE_URL + "&select=data", { headers: SUPABASE_HEADERS });
+          const res = await fetch(`${SUPABASE_BASE}?id=eq.${RECORD_ID}&select=data`, { headers: SUPABASE_HEADERS });
           if (!res.ok) {
             console.error("❌ Errore HTTP Lettura:", res.status);
             return;
@@ -51,11 +52,12 @@
             const dataObj = rows[0].data;
             const dataStr = JSON.stringify(dataObj);
             
-            Object.keys(localStorage).forEach(key => {
-              if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
                 localStorage.setItem(key, dataStr);
               }
-            });
+            }
             if (localStorage.length === 0) {
               localStorage.setItem("study_tracker_data", dataStr);
             }
@@ -78,7 +80,7 @@
           syncTimeout = setTimeout(async () => {
             try {
               let parsedData = typeof value === "string" ? JSON.parse(value) : value;
-              const response = await fetch(SUPABASE_URL, {
+              const response = await fetch(`${SUPABASE_BASE}?id=eq.${RECORD_ID}`, {
                 method: "PATCH",
                 headers: SUPABASE_HEADERS,
                 body: JSON.stringify({ data: parsedData })
@@ -86,7 +88,7 @@
               if (response.ok) {
                 console.log("✅ Dati inviati a Supabase!");
               } else {
-                console.error("❌ Errore scrittura Supabase:", response.status);
+                console.error("❌ Errore scrittura Supabase:", response.status, await response.text());
               }
             } catch (e) {
               console.error("❌ Errore invio Supabase:", e);
