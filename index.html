@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Anti-Loop Definitivo -->
+    <!-- Script Sync Sicuro Anti-Crash e Anti-Loop -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -39,61 +39,57 @@
         "X-Master-Key": API_KEY
       };
 
-      let isSyncing = false;
-      let isInitialBoot = true;
-      let lastLocalTimestamp = parseInt(localStorage.getItem("__sync_ts") || "0", 10);
-      let lastDataString = "";
+      let isWriting = false;
+      let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
+      let lastDataHash = "";
       let pushDebounce = null;
-
-      setTimeout(() => { isInitialBoot = false; }, 2000);
 
       function getStorageDump() {
         const dump = {};
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && k !== "__sync_ts") dump[k] = localStorage.getItem(k);
+          if (k && k !== "__tracker_ts") {
+            const v = localStorage.getItem(k);
+            if (v !== null && v !== undefined) dump[k] = v;
+          }
         }
         return dump;
       }
 
-      // SALVATAGGIO SUL CLOUD
+      // INVIA AL CLOUD
       async function pushState() {
-        if (isSyncing || isInitialBoot) return;
+        if (isWriting) return;
         
         const dump = getStorageDump();
-        const currentDataString = JSON.stringify(dump);
+        const currentHash = JSON.stringify(dump);
 
-        if (currentDataString === "{}" || currentDataString === lastDataString) return;
+        if (currentHash === "{}" || currentHash === lastDataHash) return;
 
         const now = Date.now();
         lastLocalTimestamp = now;
-        localStorage.setItem("__sync_ts", now.toString());
-        lastDataString = currentDataString;
-        isSyncing = true;
-
-        const payload = {
-          updatedAt: now,
-          data: dump
-        };
+        lastDataHash = currentHash;
+        try { localStorage.setItem("__tracker_ts", now.toString()); } catch(e){}
+        
+        isWriting = true;
 
         try {
           await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ updatedAt: now, data: dump }),
             keepalive: true
           });
-          console.log("⚡ Salvato sul cloud con timestamp:", now);
+          console.log("⚡ Salvataggio Cloud completato:", now);
         } catch (e) {
-          console.error("❌ Errore scrittura:", e);
+          console.error("❌ Errore push:", e);
         } finally {
-          setTimeout(() => { isSyncing = false; }, 800);
+          setTimeout(() => { isWriting = false; }, 800);
         }
       }
 
       // RICEVE DAL CLOUD
       async function pullState() {
-        if (isSyncing) return;
+        if (isWriting) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
@@ -103,51 +99,45 @@
           if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
             const remoteTimestamp = remote.record.updatedAt;
 
-            // Se la prima volta non abbiamo la stringa locale, la memorizziamo senza ricaricare
-            if (!lastDataString) {
-              lastDataString = JSON.stringify(remote.record.data);
-              if (remoteTimestamp > lastLocalTimestamp) {
-                lastLocalTimestamp = remoteTimestamp;
-                localStorage.setItem("__sync_ts", remoteTimestamp.toString());
-              }
-              return;
+            // Inizializza l'hash locale al primo avvio per evitare reload fasulli
+            if (!lastDataHash) {
+              lastDataHash = JSON.stringify(getStorageDump());
             }
 
             if (remoteTimestamp > lastLocalTimestamp) {
               const remoteData = remote.record.data;
-              const remoteDataString = JSON.stringify(remoteData);
+              const remoteHash = JSON.stringify(remoteData);
 
-              if (remoteDataString !== lastDataString) {
-                // Aggiorniamo subito il timestamp prima di sovrascrivere per bloccare il loop
+              if (remoteHash !== lastDataHash) {
                 lastLocalTimestamp = remoteTimestamp;
-                localStorage.setItem("__sync_ts", remoteTimestamp.toString());
-                lastDataString = remoteDataString;
+                lastDataHash = remoteHash;
+                try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
 
                 Object.keys(remoteData).forEach(k => {
-                  localStorage.setItem(k, remoteData[k]);
+                  try { localStorage.setItem(k, remoteData[k]); } catch(e){}
                 });
 
-                console.log("🔄 Nuovi dati ricevuti! Aggiorno...");
+                console.log("🔄 Ricevuto aggiornamento dal Cloud, ricarico la pagina...");
                 window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore lettura cloud:", e);
+          console.error("❌ Errore pull:", e);
         }
       }
 
-      // Intercetta la scrittura locale
+      // Intercetta setItem in modo totalmente trasparente per React
       const originalSetItem = localStorage.setItem;
       localStorage.setItem = function(key, value) {
-        originalSetItem.apply(this, arguments);
-        if (key === "__sync_ts") return;
-        if (!isSyncing && !isInitialBoot) {
+        try { originalSetItem.apply(this, arguments); } catch(e){}
+        if (key !== "__tracker_ts" && !isWriting) {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 400);
+          pushDebounce = setTimeout(pushState, 500);
         }
       };
 
+      // Avvio controlli
       pullState();
       setInterval(pullState, 4000);
 
@@ -155,3 +145,11 @@
         if (document.visibilityState === "hidden") pushState();
         if (document.visibilityState === "visible") pullState();
       });
+      window.addEventListener("pagehide", pushState);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
+  </body>
+</html>
