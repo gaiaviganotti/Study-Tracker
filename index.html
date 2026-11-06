@@ -6,13 +6,18 @@
     <title>Study Tracker · Tabella di marcia</title>
     <meta name="theme-color" content="#F4ACB7" />
     
+    <!-- Configurazione Web App -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Study Tracker" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
+
+    <!-- Web App Manifest -->
     <link rel="manifest" href="./manifest.json" />
+
+    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
 
@@ -20,7 +25,87 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
+    <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
+
+    <!-- SCRIPT SINCRONIZZAZIONE STABILE -->
+    <script>
+      (function() {
+        const BIN_ID = "6aeddafaac6210605a726c11";
+        const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
+        const JSONBIN_URL = "https://api.jsonbin.io/v3/b/" + BIN_ID;
+
+        let isSyncing = false;
+        let lastLocalUpdate = parseInt(localStorage.getItem('__last_sync_ts') || '0', 10);
+
+        async function pushState() {
+          if (isSyncing) return;
+          isSyncing = true;
+          const dump = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k !== '__last_sync_ts') dump[k] = localStorage.getItem(k);
+          }
+          const now = Date.now();
+          lastLocalUpdate = now;
+          localStorage.setItem('__last_sync_ts', now.toString());
+
+          try {
+            await fetch(JSONBIN_URL, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': API_KEY
+              },
+              body: JSON.stringify({ updatedAt: now, data: dump })
+            });
+            console.log("☁️ [Cloud Sync] Inviato!");
+          } catch(e) {
+            console.error("Errore invio cloud:", e);
+          } finally {
+            setTimeout(() => { isSyncing = false; }, 500);
+          }
+        }
+
+        async function pullState() {
+          if (isSyncing) return;
+          try {
+            const res = await fetch(JSONBIN_URL + '/latest?t=' + Date.now(), {
+              headers: { 'X-Master-Key': API_KEY }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data && data.record && data.record.updatedAt && data.record.data) {
+              const remoteTS = data.record.updatedAt;
+              if (remoteTS > lastLocalUpdate) {
+                console.log("🔄 [Cloud Sync] Trovate modifiche, aggiornamento...");
+                lastLocalUpdate = remoteTS;
+                localStorage.setItem('__last_sync_ts', remoteTS.toString());
+                
+                Object.keys(data.record.data).forEach(k => {
+                  localStorage.setItem(k, data.record.data[k]);
+                });
+                
+                window.location.reload();
+              }
+            }
+          } catch(e) {
+            console.error("Errore lettura cloud:", e);
+          }
+        }
+
+        const originalSetItem = localStorage.setItem;
+        localStorage.setItem = function(k, v) {
+          originalSetItem.apply(this, arguments);
+          if (k !== '__last_sync_ts' && !isSyncing) {
+            setTimeout(pushState, 300);
+          }
+        };
+
+        pullState();
+        setInterval(pullState, 5000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
