@@ -27,7 +27,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Cloud Pulita (JSONBin) -->
+    <!-- Script Sincronizzazione Bidirezionale JSONBin -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -38,60 +38,100 @@
         "X-Master-Key": API_KEY
       };
 
-      // 1. LETTURA DATI ALL'AVVIO
-      (async function syncOnLoad() {
+      let lastRemoteHash = "";
+      let isLocalSaving = false;
+
+      // Funzione per scaricare i dati dal Cloud
+      async function fetchFromCloud() {
+        if (isLocalSaving) return;
         try {
           const res = await fetch(JSONBIN_URL + "/latest", { headers: JSONBIN_HEADERS });
-          if (!res.ok) {
-            console.error("❌ Errore lettura cloud:", res.status);
-            return;
-          }
+          if (!res.ok) return;
           const data = await res.json();
           if (data && data.record && Object.keys(data.record).length > 0 && !data.record.tracker) {
             const dataStr = JSON.stringify(data.record);
-            Object.keys(localStorage).forEach(key => {
-              if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
-                localStorage.setItem(key, dataStr);
+            
+            // Aggiorna solo se i dati del cloud sono diversi da quelli locali
+            if (dataStr !== lastRemoteHash) {
+              lastRemoteHash = dataStr;
+              let updated = false;
+              Object.keys(localStorage).forEach(key => {
+                if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
+                  if (localStorage.getItem(key) !== dataStr) {
+                    localStorage.setItem(key, dataStr);
+                    updated = true;
+                  }
+                }
+              });
+              if (localStorage.length === 0) {
+                localStorage.setItem("study_tracker_data", dataStr);
+                updated = true;
               }
-            });
-            if (localStorage.length === 0) {
-              localStorage.setItem("study_tracker_data", dataStr);
+              if (updated) {
+                console.log("🔄 Sincronizzato dal Cloud!");
+                // Ricarica la vista se la modifica proviene dal telefono
+                window.dispatchEvent(new Event("storage"));
+              }
             }
-            console.log("✅ Dati sincronizzati con successo da JSONBin!");
           }
         } catch (e) {
-          console.error("❌ Errore sync lettura:", e);
+          console.error("❌ Errore sincronizzazione dal cloud:", e);
         }
-      })();
+      }
 
-      // 2. SCRITTURA AUTOMATICA AD OGNI MODIFICA
-      const originalSetItem = localStorage.setItem;
+      // Funzione per inviare i dati al Cloud
       let syncTimeout = null;
+      function sendToCloud(dataObj) {
+        clearTimeout(syncTimeout);
+        syncTimeout = setTimeout(async () => {
+          try {
+            isLocalSaving = true;
+            const response = await fetch(JSONBIN_URL, {
+              method: "PUT",
+              headers: JSONBIN_HEADERS,
+              body: JSON.stringify(dataObj)
+            });
+            if (response.ok) {
+              lastRemoteHash = JSON.stringify(dataObj);
+              console.log("✅ Modifica inviata al Cloud!");
+            }
+          } catch (e) {
+            console.error("❌ Errore invio cloud:", e);
+          } finally {
+            setTimeout(() => { isLocalSaving = false; }, 1000);
+          }
+        }, 300);
+      }
 
+      // Intercetta la scrittura in locale
+      const originalSetItem = localStorage.setItem;
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-
-        if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
-          clearTimeout(syncTimeout);
-          syncTimeout = setTimeout(async () => {
-            try {
-              let parsedData = typeof value === "string" ? JSON.parse(value) : value;
-              const response = await fetch(JSONBIN_URL, {
-                method: "PUT",
-                headers: JSONBIN_HEADERS,
-                body: JSON.stringify(parsedData)
-              });
-              if (response.ok) {
-                console.log("✅ Modifica salvata sul Cloud!");
-              } else {
-                console.error("❌ Errore salvataggio cloud:", response.status);
-              }
-            } catch (e) {
-              console.error("❌ Errore invio cloud:", e);
-            }
-          }, 400);
+        if (!isLocalSaving && key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
+          try {
+            let parsedData = typeof value === "string" ? JSON.parse(value) : value;
+            sendToCloud(parsedData);
+          } catch(e) {}
         }
       };
+
+      // Intercetta la cancellazione in locale
+      const originalRemoveItem = localStorage.removeItem;
+      localStorage.removeItem = function(key) {
+        originalRemoveItem.apply(this, arguments);
+        if (!isLocalSaving && key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
+          fetchFromCloud();
+        }
+      };
+
+      // 1. Carica subito all'avvio
+      fetchFromCloud();
+
+      // 2. Controllo automatico ogni 4 secondi (Polling) per ricevere modifiche dall'altro dispositivo
+      setInterval(fetchFromCloud, 4000);
+
+      // 3. Controlla ogni volta che la finestra torna in primo piano (es. sblocco iPhone o cambio scheda PC)
+      window.addEventListener("focus", fetchFromCloud);
     </script>
   </head>
   <body>
