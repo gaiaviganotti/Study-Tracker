@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Bidirezionale Simmetrica -->
+    <!-- Script Sincronizzazione a Priorità Dispositivo Attivo -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -41,12 +41,16 @@
 
       let isWriting = false;
       let lastKnownHash = "";
-      let lastTouchTime = 0;
+      let lastActiveUserTime = 0;
 
-      // Traccia qualsiasi interazione touch o click per proteggere le modifiche in corso
-      const touchHandler = () => { lastTouchTime = Date.now(); };
-      window.addEventListener("touchstart", touchHandler, { passive: true });
-      window.addEventListener("mousedown", touchHandler, { passive: true });
+      // REGISTRA QUALSIASI INTERAZIONE (Mouse su PC o Touch su iPhone)
+      const registerDeviceActivity = () => { 
+        lastActiveUserTime = Date.now(); 
+      };
+
+      ["touchstart", "touchend", "mousedown", "click", "keydown"].forEach(evt => {
+        window.addEventListener(evt, registerDeviceActivity, { passive: true, capture: true });
+      });
 
       function getStorageDump() {
         const dump = {};
@@ -57,7 +61,7 @@
         return dump;
       }
 
-      // INVIA DATI AL CLOUD
+      // INVIA AL CLOUD CON PRIORITÀ AL DISPOSITIVO ATTIVO
       async function pushState() {
         const currentDump = getStorageDump();
         const strDump = JSON.stringify(currentDump);
@@ -73,18 +77,18 @@
             body: JSON.stringify({ payload: currentDump }),
             keepalive: true
           });
-          console.log("⚡ Modifica inviata al Cloud!");
+          console.log("⚡ Salvato sul Cloud dal dispositivo in uso!");
         } catch (e) {
-          console.error("❌ Errore push:", e);
+          console.error("❌ Errore scrittura:", e);
         } finally {
-          setTimeout(() => { isWriting = false; }, 2000);
+          setTimeout(() => { isWriting = false; }, 3000);
         }
       }
 
-      // RICEVE DATI DAL CLOUD
+      // LEGGE DAL CLOUD (SOLO SE IL DISPOSITIVO È INATTIVO DA ALMENO 8 SECONDI)
       async function pullState() {
-        // Se stiamo scrivendo o se l'utente ha toccato lo schermo negli ultimi 4 secondi, non sovrascrivere
-        if (isWriting || (Date.now() - lastTouchTime < 4000)) return;
+        // Se stiamo inviando dati o se questo dispositivo è stato usato negli ultimi 8 secondi, SALTA IL PULL
+        if (isWriting || (Date.now() - lastActiveUserTime < 8000)) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
@@ -107,34 +111,33 @@
 
               if (updated) {
                 lastKnownHash = strRemote;
-                console.log("🔄 Rilevate nuove modifiche dal cloud, aggiornamento in corso...");
+                console.log("🔄 Dispositivo inattivo aggiornato con le modifiche dal cloud!");
                 window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore pull:", e);
+          console.error("❌ Errore lettura:", e);
         }
       }
 
-      // Intercetta setItem per inviare immediatamente ogni modifica
+      // Intercetta la scrittura locale
       const originalSetItem = localStorage.setItem;
       let pushDebounce = null;
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
         if (!isWriting) {
-          lastTouchTime = Date.now();
+          lastActiveUserTime = Date.now();
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 200);
+          pushDebounce = setTimeout(pushState, 100);
         }
       };
 
-      // Avvio controlli
+      // Controllo periodico
       pullState();
-      setInterval(pullState, 3000);
+      setInterval(pullState, 4000);
 
-      // Sincronizzazione al cambio stato/scheda
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") pushState();
         if (document.visibilityState === "visible") pullState();
