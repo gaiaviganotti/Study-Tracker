@@ -6,7 +6,8 @@
     <title>Study Tracker · Tabella di marcia</title>
     <meta name="theme-color" content="#F4ACB7" />
     
-    <!-- Configurazione Apple iOS / Safari -->
+    <!-- Configurazione Web App (Standard + iOS) -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Study Tracker" />
@@ -27,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Istantanea Immediata -->
+    <!-- Script Sincronizzazione JSONBin Sicuro -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -39,39 +40,47 @@
       };
 
       let isWriting = false;
-      let lastHash = "";
+      let lastPayload = "";
       let lastTouchTime = 0;
 
-      // Traccia le interazioni touch sul telefono per bloccare il reload improvviso
       window.addEventListener("touchstart", () => { lastTouchTime = Date.now(); }, { passive: true });
       window.addEventListener("click", () => { lastTouchTime = Date.now(); }, { passive: true });
 
-      function getAppState() {
-        const dump = {};
+      // Trova la chiave principale usata dall'app React
+      function getAppKey() {
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k) dump[k] = localStorage.getItem(k);
+          if (k && (k.includes("study") || k.includes("tracker") || k.includes("kuse") || k.includes("state"))) {
+            return k;
+          }
         }
-        return dump;
+        return "study_tracker_data";
       }
 
-      // INVIA AL CLOUD ISTANTANEAMENTE
+      // INVIA AL CLOUD
       async function pushState() {
-        const state = getAppState();
-        const strState = JSON.stringify(state);
-        if (strState === "{}" || strState === lastHash) return;
+        const key = getAppKey();
+        const rawVal = localStorage.getItem(key);
+        if (!rawVal || rawVal === lastPayload) return;
 
-        lastHash = strState;
+        let dataToSave;
+        try {
+          dataToSave = JSON.parse(rawVal);
+        } catch(e) {
+          dataToSave = { raw: rawVal };
+        }
+
+        lastPayload = rawVal;
         isWriting = true;
 
         try {
           await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: strState,
+            body: JSON.stringify(dataToSave),
             keepalive: true
           });
-          console.log("⚡ Salvato su Cloud!");
+          console.log("⚡ Dati inviati al Cloud!");
         } catch (e) {
           console.error("❌ Errore push:", e);
         } finally {
@@ -81,7 +90,6 @@
 
       // LEGGE DAL CLOUD
       async function pullState() {
-        // Se si è toccato lo schermo negli ultimi 6 secondi o si sta scrivendo, NON ricaricare
         if (isWriting || (Date.now() - lastTouchTime < 6000)) return;
 
         try {
@@ -89,23 +97,14 @@
           if (!res.ok) return;
           const data = await res.json();
           if (data && data.record && !data.record.tracker) {
-            const remoteDump = data.record;
-            const remoteStr = JSON.stringify(remoteDump);
+            const key = getAppKey();
+            const remoteVal = data.record.raw ? data.record.raw : JSON.stringify(data.record);
 
-            if (remoteStr !== lastHash && remoteStr !== "{}") {
-              let updated = false;
-              Object.keys(remoteDump).forEach(k => {
-                if (localStorage.getItem(k) !== remoteDump[k]) {
-                  localStorage.setItem(k, remoteDump[k]);
-                  updated = true;
-                }
-              });
-
-              if (updated) {
-                lastHash = remoteStr;
-                console.log("🔄 Ricevuto dal Cloud, aggiornamento vista...");
-                window.location.reload();
-              }
+            if (remoteVal !== localStorage.getItem(key) && remoteVal !== lastPayload) {
+              lastPayload = remoteVal;
+              localStorage.setItem(key, remoteVal);
+              console.log("🔄 Nuovi dati ricevuti, ricarico la vista...");
+              window.location.reload();
             }
           }
         } catch (e) {
@@ -113,4 +112,18 @@
         }
       }
 
-      // Intercetta
+      // Intercetta la scrittura locale senza bloccare l'interfaccia
+      const originalSetItem = localStorage.setItem;
+      localStorage.setItem = function(key, value) {
+        originalSetItem.apply(this, arguments);
+        if (!isWriting && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
+          lastTouchTime = Date.now();
+          pushState();
+        }
+      };
+
+      pullState();
+      setInterval(pullState, 4000);
+
+      document.addEventListener("visibilitychange", () => {
+        if (document
