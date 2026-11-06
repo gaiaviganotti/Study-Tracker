@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Universale Anti-Crash -->
+    <!-- Script Sincronizzazione Bidirezionale Simmetrica -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -40,51 +40,51 @@
       };
 
       let isWriting = false;
-      let lastSentHash = "";
-      let lastInteractionTime = 0;
+      let lastKnownHash = "";
+      let lastTouchTime = 0;
 
-      const trackTouch = () => { lastInteractionTime = Date.now(); };
-      window.addEventListener("touchstart", trackTouch, { passive: true });
-      window.addEventListener("mousedown", trackTouch, { passive: true });
+      // Traccia qualsiasi interazione touch o click per proteggere le modifiche in corso
+      const touchHandler = () => { lastTouchTime = Date.now(); };
+      window.addEventListener("touchstart", touchHandler, { passive: true });
+      window.addEventListener("mousedown", touchHandler, { passive: true });
 
-      // Crea uno snapshot di tutto il localStorage
-      function getStorageSnapshot() {
-        const snapshot = {};
+      function getStorageDump() {
+        const dump = {};
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k) snapshot[k] = localStorage.getItem(k);
+          if (k) dump[k] = localStorage.getItem(k);
         }
-        return snapshot;
+        return dump;
       }
 
-      // INVIA AL CLOUD
+      // INVIA DATI AL CLOUD
       async function pushState() {
-        const currentSnapshot = getStorageSnapshot();
-        const strSnapshot = JSON.stringify(currentSnapshot);
-        if (strSnapshot === "{}" || strSnapshot === lastSentHash) return;
+        const currentDump = getStorageDump();
+        const strDump = JSON.stringify(currentDump);
+        if (strDump === "{}" || strDump === lastKnownHash) return;
 
-        lastSentHash = strSnapshot;
+        lastKnownHash = strDump;
         isWriting = true;
 
         try {
           await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: JSON.stringify({ payload: currentSnapshot }),
+            body: JSON.stringify({ payload: currentDump }),
             keepalive: true
           });
-          console.log("⚡ Sincronizzato con il Cloud!");
+          console.log("⚡ Modifica inviata al Cloud!");
         } catch (e) {
           console.error("❌ Errore push:", e);
         } finally {
-          setTimeout(() => { isWriting = false; }, 1500);
+          setTimeout(() => { isWriting = false; }, 2000);
         }
       }
 
-      // LEGGE DAL CLOUD
+      // RICEVE DATI DAL CLOUD
       async function pullState() {
-        // Blocco sicurezza: se stai scrivendo o hai toccato lo schermo negli ultimi 5 secondi, non interrompere l'utente
-        if (isWriting || (Date.now() - lastInteractionTime < 5000)) return;
+        // Se stiamo scrivendo o se l'utente ha toccato lo schermo negli ultimi 4 secondi, non sovrascrivere
+        if (isWriting || (Date.now() - lastTouchTime < 4000)) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
@@ -95,19 +95,19 @@
             const remoteStorage = data.record.payload;
             const strRemote = JSON.stringify(remoteStorage);
 
-            if (strRemote !== lastSentHash && strRemote !== "{}") {
-              let hasChanges = false;
+            if (strRemote !== lastKnownHash && strRemote !== "{}") {
+              let updated = false;
 
-              Object.keys(remoteStorage).forEach(key => {
-                if (localStorage.getItem(key) !== remoteStorage[key]) {
-                  localStorage.setItem(key, remoteStorage[key]);
-                  hasChanges = true;
+              Object.keys(remoteStorage).forEach(k => {
+                if (localStorage.getItem(k) !== remoteStorage[k]) {
+                  localStorage.setItem(k, remoteStorage[k]);
+                  updated = true;
                 }
               });
 
-              if (hasChanges) {
-                lastSentHash = strRemote;
-                console.log("🔄 Nuovi dati ricevuti dall'altro dispositivo, aggiorno la pagina...");
+              if (updated) {
+                lastKnownHash = strRemote;
+                console.log("🔄 Rilevate nuove modifiche dal cloud, aggiornamento in corso...");
                 window.location.reload();
               }
             }
@@ -117,16 +117,16 @@
         }
       }
 
-      // Intercetta qualsiasi scrittura locale
+      // Intercetta setItem per inviare immediatamente ogni modifica
       const originalSetItem = localStorage.setItem;
       let pushDebounce = null;
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
         if (!isWriting) {
-          lastInteractionTime = Date.now();
+          lastTouchTime = Date.now();
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 300);
+          pushDebounce = setTimeout(pushState, 200);
         }
       };
 
@@ -134,10 +134,12 @@
       pullState();
       setInterval(pullState, 3000);
 
+      // Sincronizzazione al cambio stato/scheda
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") pushState();
         if (document.visibilityState === "visible") pullState();
       });
+      window.addEventListener("pagehide", pushState);
     </script>
   </head>
   <body>
