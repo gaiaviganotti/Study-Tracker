@@ -27,7 +27,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Universale JSONBin -->
+    <!-- Script Sincronizzazione Bidirezionale con Protezione Scrittura -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -38,11 +38,12 @@
         "X-Master-Key": API_KEY
       };
 
-      let isSyncing = false;
-      let lastSentSnapshot = "";
+      let isLocalUserAction = false;
+      let userActionTimer = null;
+      let lastKnownHash = "";
 
-      // Estrae tutto ciò che l'app salva in LocalStorage
-      function getLocalStateDump() {
+      // Raccoglie i dati locali
+      function getLocalDump() {
         const dump = {};
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
@@ -51,84 +52,82 @@
         return dump;
       }
 
-      // 1. INVIO TUTTI I DATI AL CLOUD
+      // 1. INVIA I DATI LOCALI AL CLOUD
       async function pushToCloud() {
-        if (isSyncing) return;
-        const stateDump = getLocalStateDump();
-        const strDump = JSON.stringify(stateDump);
-        if (strDump === "{}" || strDump === lastSentSnapshot) return;
+        const dump = getLocalDump();
+        const strDump = JSON.stringify(dump);
+        if (strDump === "{}" || strDump === lastKnownHash) return;
 
         try {
-          isSyncing = true;
           const res = await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
             body: strDump
           });
           if (res.ok) {
-            lastSentSnapshot = strDump;
-            console.log("✅ Stato completo salvato sul Cloud!");
+            lastKnownHash = strDump;
+            console.log("✅ Salvo le modifiche sul Cloud!");
           }
         } catch (e) {
-          console.error("❌ Errore invio cloud:", e);
-        } finally {
-          setTimeout(() => { isSyncing = false; }, 1000);
+          console.error("❌ Errore scrittura Cloud:", e);
         }
       }
 
-      // 2. SCARICA I DATI DAL CLOUD
+      // 2. LEGGE I DATI DAL CLOUD (solo se l'utente non sta interagendo sul dispositivo)
       async function pullFromCloud() {
-        if (isSyncing) return;
+        if (isLocalUserAction) return; // Blocco sicurezza se stai toccando lo schermo
+
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
           if (!res.ok) return;
           const data = await res.json();
-          if (data && data.record) {
+          if (data && data.record && !data.record.tracker) {
             const remoteDump = data.record;
             const remoteStr = JSON.stringify(remoteDump);
 
-            if (remoteStr !== lastSentSnapshot && remoteStr !== "{}" && !remoteDump.tracker) {
-              let updated = false;
+            if (remoteStr !== lastKnownHash && remoteStr !== "{}") {
+              let changed = false;
               Object.keys(remoteDump).forEach(k => {
                 if (localStorage.getItem(k) !== remoteDump[k]) {
                   localStorage.setItem(k, remoteDump[k]);
-                  updated = true;
+                  changed = true;
                 }
               });
 
-              if (updated) {
-                lastSentSnapshot = remoteStr;
-                console.log("🔄 Ricevuto aggiornamento dal Cloud, ricarico la vista...");
+              if (changed) {
+                lastKnownHash = remoteStr;
+                console.log("🔄 Nuove modifiche rilevate dall'altro dispositivo, ricarico...");
                 window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore lettura cloud:", e);
+          console.error("❌ Errore lettura Cloud:", e);
         }
       }
 
-      // Intercetta QUALSIASI modifica o salvataggio fatto dall'app
+      // Intercetta i click/modifiche sul dispositivo locale
       const originalSetItem = localStorage.setItem;
-      let pushTimeout = null;
+      let pushDebounce = null;
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-        if (!isSyncing) {
-          clearTimeout(pushTimeout);
-          pushTimeout = setTimeout(pushToCloud, 400);
-        }
+
+        // Segnala che l'utente ha fatto un'azione locale: blocca pull per 5 secondi
+        isLocalUserAction = true;
+        clearTimeout(userActionTimer);
+        userActionTimer = setTimeout(() => { isLocalUserAction = false; }, 5000);
+
+        clearTimeout(pushDebounce);
+        pushDebounce = setTimeout(pushToCloud, 300);
       };
 
-      // Controllo immediato all'apertura
+      // Avvio controlli
       pullFromCloud();
+      setInterval(pullFromCloud, 4000);
 
-      // Controllo periodico ogni 3 secondi per catturare le modifiche dell'altro dispositivo
-      setInterval(pullFromCloud, 3000);
-
-      // Invia subito i dati se l'utente sta per chiudere o cambiare scheda dal telefono
+      // Sincronizzazione immediata all'uscita/rientro
       window.addEventListener("pagehide", pushToCloud);
-      window.addEventListener("blur", pushToCloud);
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") pushToCloud();
         if (document.visibilityState === "visible") pullFromCloud();
