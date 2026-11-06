@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione a Priorità Dispositivo Attivo -->
+    <!-- Script Sync Basato su Timestamp (Conflict-Free) -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -39,18 +39,8 @@
         "X-Master-Key": API_KEY
       };
 
-      let isWriting = false;
-      let lastKnownHash = "";
-      let lastActiveUserTime = 0;
-
-      // REGISTRA QUALSIASI INTERAZIONE (Mouse su PC o Touch su iPhone)
-      const registerDeviceActivity = () => { 
-        lastActiveUserTime = Date.now(); 
-      };
-
-      ["touchstart", "touchend", "mousedown", "click", "keydown"].forEach(evt => {
-        window.addEventListener(evt, registerDeviceActivity, { passive: true, capture: true });
-      });
+      let isSyncing = false;
+      let lastLocalTimestamp = 0;
 
       function getStorageDump() {
         const dump = {};
@@ -61,63 +51,69 @@
         return dump;
       }
 
-      // INVIA AL CLOUD CON PRIORITÀ AL DISPOSITIVO ATTIVO
+      // INVIA DATI AL CLOUD CON TIMESTAMP
       async function pushState() {
-        const currentDump = getStorageDump();
-        const strDump = JSON.stringify(currentDump);
-        if (strDump === "{}" || strDump === lastKnownHash) return;
+        if (isSyncing) return;
+        
+        const dump = getStorageDump();
+        const now = Date.now();
+        lastLocalTimestamp = now;
+        isSyncing = true;
 
-        lastKnownHash = strDump;
-        isWriting = true;
+        const payload = {
+          updatedAt: now,
+          data: dump
+        };
 
         try {
           await fetch(JSONBIN_URL, {
             method: "PUT",
             headers: JSONBIN_HEADERS,
-            body: JSON.stringify({ payload: currentDump }),
+            body: JSON.stringify(payload),
             keepalive: true
           });
-          console.log("⚡ Salvato sul Cloud dal dispositivo in uso!");
+          console.log("⚡ Salvataggio completato con timestamp:", now);
         } catch (e) {
-          console.error("❌ Errore scrittura:", e);
+          console.error("❌ Errore salvataggio cloud:", e);
         } finally {
-          setTimeout(() => { isWriting = false; }, 3000);
+          setTimeout(() => { isSyncing = false; }, 1000);
         }
       }
 
-      // LEGGE DAL CLOUD (SOLO SE IL DISPOSITIVO È INATTIVO DA ALMENO 8 SECONDI)
+      // LEGGE DAL CLOUD SOLO SE IL CLOUD È PIÙ RECENTE
       async function pullState() {
-        // Se stiamo inviando dati o se questo dispositivo è stato usato negli ultimi 8 secondi, SALTA IL PULL
-        if (isWriting || (Date.now() - lastActiveUserTime < 8000)) return;
+        if (isSyncing) return;
 
         try {
           const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
           if (!res.ok) return;
-          const data = await res.json();
+          const remote = await res.json();
 
-          if (data && data.record && data.record.payload) {
-            const remoteStorage = data.record.payload;
-            const strRemote = JSON.stringify(remoteStorage);
+          if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
+            const remoteTimestamp = remote.record.updatedAt;
 
-            if (strRemote !== lastKnownHash && strRemote !== "{}") {
+            // Il Cloud vince SOLO SE ha un timestamp strictly maggiore del nostro locale
+            if (remoteTimestamp > lastLocalTimestamp) {
               let updated = false;
+              const remoteData = remote.record.data;
 
-              Object.keys(remoteStorage).forEach(k => {
-                if (localStorage.getItem(k) !== remoteStorage[k]) {
-                  localStorage.setItem(k, remoteStorage[k]);
+              Object.keys(remoteData).forEach(k => {
+                if (localStorage.getItem(k) !== remoteData[k]) {
+                  localStorage.setItem(k, remoteData[k]);
                   updated = true;
                 }
               });
 
+              lastLocalTimestamp = remoteTimestamp;
+
               if (updated) {
-                lastKnownHash = strRemote;
-                console.log("🔄 Dispositivo inattivo aggiornato con le modifiche dal cloud!");
+                console.log("🔄 Dati più recenti ricevuti dal cloud! Aggiorno la pagina...");
                 window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore lettura:", e);
+          console.error("❌ Errore lettura cloud:", e);
         }
       }
 
@@ -127,16 +123,15 @@
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-        if (!isWriting) {
-          lastActiveUserTime = Date.now();
+        if (!isSyncing) {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 100);
+          pushDebounce = setTimeout(pushState, 200);
         }
       };
 
-      // Controllo periodico
+      // Avvio controlli
       pullState();
-      setInterval(pullState, 4000);
+      setInterval(pullState, 3000);
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") pushState();
