@@ -24,10 +24,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
-    <!-- CSS Locale caricato da GitHub -->
+    <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script di Sincronizzazione Cloud Supabase -->
+    <!-- Script di Sincronizzazione Avanzata Supabase -->
     <script>
       (async function syncOnLoad() {
         try {
@@ -40,12 +40,16 @@
           });
           const rows = await res.json();
           if (rows && rows[0] && rows[0].data) {
-            const dataStr = JSON.stringify(rows[0].data);
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse"))) {
-                localStorage.setItem(key, dataStr);
+            const dataObj = rows[0].data;
+            // Aggiorna tutte le chiavi locali con i dati presi da Supabase
+            Object.keys(localStorage).forEach(key => {
+              if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
+                localStorage.setItem(key, JSON.stringify(dataObj));
               }
+            });
+            // Se non esistono ancora chiavi locali, ne crea una di default
+            if (localStorage.length === 0) {
+              localStorage.setItem("study_tracker_data", JSON.stringify(dataObj));
             }
           }
         } catch (e) {
@@ -56,7 +60,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- JS Locale caricato da GitHub -->
     <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
   </body>
 </html>
