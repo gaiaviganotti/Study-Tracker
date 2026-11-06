@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sync con Avvio Immediato e Log Visibili -->
+    <!-- Script Sync Bidirezionale Corretto -->
     <script>
       (function() {
         const BIN_ID = "6aeddafaac6210605a726c11";
@@ -44,6 +44,7 @@
         let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
         let lastDataHash = "";
         let pushDebounce = null;
+        let isFirstCheckDone = false;
 
         function getStorageDump() {
           const dump = {};
@@ -58,8 +59,10 @@
         }
 
         // INVIA AL CLOUD
-        async function pushState() {
+        async function pushState(force = false) {
           if (isWriting) return;
+          // Impedisce di spingere dati locali al cloud al primo avvio finché non ha controllato se il cloud ha dati più nuovi!
+          if (!isFirstCheckDone && !force) return;
           
           const dump = getStorageDump();
           const currentHash = JSON.stringify(dump);
@@ -80,7 +83,7 @@
               body: JSON.stringify({ updatedAt: now, data: dump }),
               keepalive: true
             });
-            console.log("⚡ [Cloud] Dati inviati con successo! TS:", now);
+            console.log("⚡ [Cloud] Dati inviati al Cloud! TS:", now);
           } catch (e) {
             console.error("❌ [Cloud] Errore invio:", e);
           } finally {
@@ -94,28 +97,23 @@
 
           try {
             const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
-            if (!res.ok) {
-              console.warn("⚠️ [Cloud] Risposta non OK dal server:", res.status);
-              return;
-            }
+            if (!res.ok) return;
             const remote = await res.json();
 
             if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
               const remoteTimestamp = remote.record.updatedAt;
               const remoteData = remote.record.data;
 
-              if (Object.keys(remoteData).length === 0) return;
-
-              if (!lastDataHash) {
-                lastDataHash = JSON.stringify(getStorageDump());
+              if (Object.keys(remoteData).length === 0) {
+                isFirstCheckDone = true;
+                return;
               }
 
-              console.log("🔍 [Cloud] Controllo sync... Remote TS:", remoteTimestamp, "Local TS:", lastLocalTimestamp);
+              const remoteHash = JSON.stringify(remoteData);
 
-              if (remoteTimestamp > lastLocalTimestamp) {
-                const remoteHash = JSON.stringify(remoteData);
-
-                if (remoteHash !== lastDataHash) {
+              // SE IL CLOUD È PIÙ RECENTE O AL PRIMO AVVIO HA DATI DIVERSI, IL CLOUD VINCE
+              if (remoteTimestamp > lastLocalTimestamp || !isFirstCheckDone) {
+                if (remoteHash !== JSON.stringify(getStorageDump())) {
                   lastLocalTimestamp = remoteTimestamp;
                   lastDataHash = remoteHash;
                   try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
@@ -124,42 +122,49 @@
                     try { localStorage.setItem(k, remoteData[k]); } catch(e){}
                   });
 
-                  console.log("🔄 [Cloud] Ricevute modifiche più recenti! Ricarico la pagina...");
+                  console.log("🔄 [Cloud] Ricevuti dati più recenti dal server! Aggiorno...");
+                  isFirstCheckDone = true;
                   window.location.reload();
+                  return;
                 }
               }
+
+              isFirstCheckDone = true;
             }
           } catch (e) {
             console.error("❌ [Cloud] Errore lettura:", e);
+            isFirstCheckDone = true;
           }
         }
 
-        // Intercetta setItem
+        // Intercetta la scrittura locale
         const originalSetItem = localStorage.setItem;
         localStorage.setItem = function(key, value) {
           try { originalSetItem.apply(this, arguments); } catch(e){}
           if (key !== "__tracker_ts" && !isWriting) {
             clearTimeout(pushDebounce);
-            pushDebounce = setTimeout(pushState, 300);
+            pushDebounce = setTimeout(() => pushState(false), 300);
           }
         };
 
-        // Trigger immediato per iOS/Touch
-        window.addEventListener("touchend", () => {
+        // Forzatura per iOS/Safari su tocco ed eventi di uscita/entrata
+        const triggerTouchPush = () => {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 200);
-        }, { passive: true });
+          pushDebounce = setTimeout(() => pushState(true), 250);
+        };
 
-        // AVVIO IMMEDIATO (senza attendere DOMContentLoaded)
-        console.log("🚀 Script Sync Inizializzato!");
+        window.addEventListener("touchend", triggerTouchPush, { passive: true });
+        window.addEventListener("pointerup", triggerTouchPush, { passive: true });
+
+        console.log("🚀 Script Sync Inizializzato (Protezione Primo Avvio Abilitata)!");
         pullState();
         setInterval(pullState, 3000);
 
         document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState === "hidden") pushState();
+          if (document.visibilityState === "hidden") pushState(true);
           if (document.visibilityState === "visible") pullState();
         });
-        window.addEventListener("pagehide", pushState);
+        window.addEventListener("pagehide", () => pushState(true));
       })();
     </script>
   </head>
