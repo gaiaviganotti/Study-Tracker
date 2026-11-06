@@ -6,18 +6,13 @@
     <title>Study Tracker · Tabella di marcia</title>
     <meta name="theme-color" content="#F4ACB7" />
     
-    <!-- Configurazione Web App -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Study Tracker" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
-
-    <!-- Web App Manifest -->
     <link rel="manifest" href="./manifest.json" />
-
-    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
 
@@ -25,10 +20,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     
-    <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- SCRIPT SINCRONIZZAZIONE STABILE -->
     <script>
       (function() {
         const BIN_ID = "6aeddafaac6210605a726c11";
@@ -59,10 +52,7 @@
               },
               body: JSON.stringify({ updatedAt: now, data: dump })
             });
-            console.log("☁️ [Cloud Sync] Inviato!");
-          } catch(e) {
-            console.error("Errore invio cloud:", e);
-          } finally {
+          } catch(e) {} finally {
             setTimeout(() => { isSyncing = false; }, 500);
           }
         }
@@ -78,20 +68,21 @@
             if (data && data.record && data.record.updatedAt && data.record.data) {
               const remoteTS = data.record.updatedAt;
               if (remoteTS > lastLocalUpdate) {
-                console.log("🔄 [Cloud Sync] Trovate modifiche, aggiornamento...");
                 lastLocalUpdate = remoteTS;
                 localStorage.setItem('__last_sync_ts', remoteTS.toString());
                 
+                let valid = true;
                 Object.keys(data.record.data).forEach(k => {
-                  localStorage.setItem(k, data.record.data[k]);
+                  try {
+                    JSON.parse(data.record.data[k]);
+                    localStorage.setItem(k, data.record.data[k]);
+                  } catch(e) { valid = false; }
                 });
                 
-                window.location.reload();
+                if (valid) window.location.reload();
               }
             }
-          } catch(e) {
-            console.error("Errore lettura cloud:", e);
-          }
+          } catch(e) {}
         }
 
         const originalSetItem = localStorage.setItem;
@@ -103,7 +94,7 @@
         };
 
         pullState();
-        setInterval(pullState, 5000);
+        setInterval(pullState, 8000);
       })();
     </script>
   </head>
