@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F7CAD0"/>
+      <stop offset="1" stop-color="#E58AA6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g transform="translate(256 256) scale(1.12) translate(-256 -270)">
+  <ellipse cx="256" cy="400" rx="140" ry="12" fill="#B24E73" opacity="0.25"/>
+  <!-- cover -->
+  <path d="M96 168 Q96 150 114 150 L256 166 L398 150 Q416 150 416 168 L416 372 Q416 384 404 384 L256 372 L108 384 Q96 384 96 372 Z" fill="#B24E73"/>
+  <!-- left page -->
+  <path d="M112 176 Q112 166 124 168 Q200 174 250 192 L250 360 Q196 342 124 346 Q112 347 112 336 Z" fill="#FFFFFF"/>
+  <!-- right page -->
+  <path d="M400 176 Q400 166 388 168 Q312 174 262 192 L262 360 Q316 342 388 346 Q400 347 400 336 Z" fill="#FFF3F5"/>
+  <!-- text lines -->
+  <g stroke="#E8B3C1" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M144 236 Q190 238 222 250"/>
+    <path d="M144 268 Q190 270 222 282"/>
+    <path d="M144 300 Q190 302 222 314"/>
+    <path d="M290 250 Q322 238 368 236" transform="translate(0 28)"/>
+    <path d="M290 282 Q322 270 368 268" transform="translate(0 28)"/>
+  </g>
+  <!-- bookmark -->
+  <path d="M330 150 L330 226 L350 210 L370 226 L370 152 Z" fill="#D87A99"/>
+</g>
+</svg>
