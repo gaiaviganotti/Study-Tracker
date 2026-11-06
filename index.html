@@ -28,144 +28,128 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sync Bidirezionale Corretto -->
+    <!-- Script Sincronizzazione Anti-Crash Protezione Avanzata -->
     <script>
-      (function() {
-        const BIN_ID = "6aeddafaac6210605a726c11";
-        const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
+      const BIN_ID = "6aeddafaac6210605a726c11";
+      const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
 
-        const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-        const JSONBIN_HEADERS = {
-          "Content-Type": "application/json",
-          "X-Master-Key": API_KEY
-        };
+      const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+      const JSONBIN_HEADERS = {
+        "Content-Type": "application/json",
+        "X-Master-Key": API_KEY
+      };
 
-        let isWriting = false;
-        let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
-        let lastDataHash = "";
-        let pushDebounce = null;
-        let isFirstCheckDone = false;
+      let isWriting = false;
+      let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
+      let lastDataHash = "";
+      let pushDebounce = null;
 
-        function getStorageDump() {
-          const dump = {};
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k !== "__tracker_ts") {
-              const v = localStorage.getItem(k);
-              if (v !== null && v !== undefined) dump[k] = v;
+      function getStorageDump() {
+        const dump = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k !== "__tracker_ts") {
+            const v = localStorage.getItem(k);
+            if (v !== null && v !== undefined) dump[k] = v;
+          }
+        }
+        return dump;
+      }
+
+      // INVIA AL CLOUD
+      async function pushState() {
+        if (isWriting) return;
+        
+        const dump = getStorageDump();
+        const currentHash = JSON.stringify(dump);
+
+        if (currentHash === "{}" || currentHash === lastDataHash) return;
+
+        const now = Date.now();
+        lastLocalTimestamp = now;
+        lastDataHash = currentHash;
+        try { localStorage.setItem("__tracker_ts", now.toString()); } catch(e){}
+        
+        isWriting = true;
+
+        try {
+          await fetch(JSONBIN_URL, {
+            method: "PUT",
+            headers: JSONBIN_HEADERS,
+            body: JSON.stringify({ updatedAt: now, data: dump }),
+            keepalive: true
+          });
+          console.log("⚡ Salvato su Cloud:", now);
+        } catch (e) {
+          console.error("❌ Errore push:", e);
+        } finally {
+          setTimeout(() => { isWriting = false; }, 800);
+        }
+      }
+
+      // RICEVE DAL CLOUD
+      async function pullState() {
+        if (isWriting) return;
+
+        try {
+          const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
+          if (!res.ok) return;
+          const remote = await res.json();
+
+          if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
+            const remoteTimestamp = remote.record.updatedAt;
+            const remoteData = remote.record.data;
+
+            // Se il dato remoto è vuoto {}, non fare nulla per evitare crash di React
+            if (Object.keys(remoteData).length === 0) return;
+
+            if (!lastDataHash) {
+              lastDataHash = JSON.stringify(getStorageDump());
             }
-          }
-          return dump;
-        }
 
-        // INVIA AL CLOUD
-        async function pushState(force = false) {
-          if (isWriting) return;
-          // Impedisce di spingere dati locali al cloud al primo avvio finché non ha controllato se il cloud ha dati più nuovi!
-          if (!isFirstCheckDone && !force) return;
-          
-          const dump = getStorageDump();
-          const currentHash = JSON.stringify(dump);
-
-          if (currentHash === "{}" || currentHash === lastDataHash) return;
-
-          const now = Date.now();
-          lastLocalTimestamp = now;
-          lastDataHash = currentHash;
-          try { localStorage.setItem("__tracker_ts", now.toString()); } catch(e){}
-          
-          isWriting = true;
-
-          try {
-            await fetch(JSONBIN_URL + "?b_ts=" + now, {
-              method: "PUT",
-              headers: JSONBIN_HEADERS,
-              body: JSON.stringify({ updatedAt: now, data: dump }),
-              keepalive: true
-            });
-            console.log("⚡ [Cloud] Dati inviati al Cloud! TS:", now);
-          } catch (e) {
-            console.error("❌ [Cloud] Errore invio:", e);
-          } finally {
-            setTimeout(() => { isWriting = false; }, 600);
-          }
-        }
-
-        // RICEVE DAL CLOUD
-        async function pullState() {
-          if (isWriting) return;
-
-          try {
-            const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
-            if (!res.ok) return;
-            const remote = await res.json();
-
-            if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
-              const remoteTimestamp = remote.record.updatedAt;
-              const remoteData = remote.record.data;
-
-              if (Object.keys(remoteData).length === 0) {
-                isFirstCheckDone = true;
-                return;
-              }
-
+            if (remoteTimestamp > lastLocalTimestamp) {
               const remoteHash = JSON.stringify(remoteData);
 
-              // SE IL CLOUD È PIÙ RECENTE O AL PRIMO AVVIO HA DATI DIVERSI, IL CLOUD VINCE
-              if (remoteTimestamp > lastLocalTimestamp || !isFirstCheckDone) {
-                if (remoteHash !== JSON.stringify(getStorageDump())) {
-                  lastLocalTimestamp = remoteTimestamp;
-                  lastDataHash = remoteHash;
-                  try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
+              if (remoteHash !== lastDataHash) {
+                lastLocalTimestamp = remoteTimestamp;
+                lastDataHash = remoteHash;
+                try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
 
-                  Object.keys(remoteData).forEach(k => {
-                    try { localStorage.setItem(k, remoteData[k]); } catch(e){}
-                  });
+                Object.keys(remoteData).forEach(k => {
+                  try { localStorage.setItem(k, remoteData[k]); } catch(e){}
+                });
 
-                  console.log("🔄 [Cloud] Ricevuti dati più recenti dal server! Aggiorno...");
-                  isFirstCheckDone = true;
-                  window.location.reload();
-                  return;
-                }
+                console.log("🔄 Aggiornamento ricevuto dal Cloud, ricarico la pagina...");
+                window.location.reload();
               }
-
-              isFirstCheckDone = true;
             }
-          } catch (e) {
-            console.error("❌ [Cloud] Errore lettura:", e);
-            isFirstCheckDone = true;
           }
+        } catch (e) {
+          console.error("❌ Errore pull:", e);
         }
+      }
 
-        // Intercetta la scrittura locale
-        const originalSetItem = localStorage.setItem;
-        localStorage.setItem = function(key, value) {
-          try { originalSetItem.apply(this, arguments); } catch(e){}
-          if (key !== "__tracker_ts" && !isWriting) {
-            clearTimeout(pushDebounce);
-            pushDebounce = setTimeout(() => pushState(false), 300);
-          }
-        };
-
-        // Forzatura per iOS/Safari su tocco ed eventi di uscita/entrata
-        const triggerTouchPush = () => {
+      // Intercetta la scrittura locale senza bloccare React
+      const originalSetItem = localStorage.setItem;
+      localStorage.setItem = function(key, value) {
+        try { originalSetItem.apply(this, arguments); } catch(e){}
+        if (key !== "__tracker_ts" && !isWriting) {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(() => pushState(true), 250);
-        };
+          pushDebounce = setTimeout(pushState, 500);
+        }
+      };
 
-        window.addEventListener("touchend", triggerTouchPush, { passive: true });
-        window.addEventListener("pointerup", triggerTouchPush, { passive: true });
-
-        console.log("🚀 Script Sync Inizializzato (Protezione Primo Avvio Abilitata)!");
+      // Avvio controlli dopo che il DOM è pronto
+      window.addEventListener("DOMContentLoaded", () => {
         pullState();
-        setInterval(pullState, 3000);
+        setInterval(pullState, 4000);
+      });
 
-        document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState === "hidden") pushState(true);
-          if (document.visibilityState === "visible") pullState();
-        });
-        window.addEventListener("pagehide", () => pushState(true));
-      })();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") pushState();
+        if (document.visibilityState === "visible") pullState();
+      });
+      window.addEventListener("pagehide", pushState);
     </script>
   </head>
   <body>
