@@ -27,58 +27,71 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script di Sincronizzazione Bi-direzionale (Lettura + Scrittura Supabase) -->
+    <!-- Script di Sincronizzazione Supabase Corretto -->
     <script>
+      const SUPABASE_APIKEY = "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps";
       const SUPABASE_URL = "https://fgimdeizmnywxkrvqgbt.supabase.co/rest/v1/widget_snapshots?id=eq.4o2g2m3z4p6k315n313i514c0m4b371i";
+      
       const SUPABASE_HEADERS = {
-        "apikey": "sb_publishable_VbPPg_DTf7RVWJrP7wJp9w_Q5zubVps",
-        "Authorization": "Bearer eyJhbGciOiJFUzI1NiIsImtpZCI6IjliMjI0YWNlLWI3ZDgtNGZhNC04ZjBjLWY2MmVmNTBjYWY3NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDkyNTA5OTQsImlhdCI6MTc5Mzg5MDk5NCwiaXNzIjoic3VwYWJhc2UiLCJyZWYiOiJmZ2ltZGVpem1ueXd4a3J2cWdidCIsInRvbGUiOiJwcmRfc2l0ZV9uOWhpMG5rYWl3azQifQ.GZKQvtL2VdF4Z1FQULgCJeYnYMtMp5bhQpoGOUVqhq4Vh_icsjnL26SNphloSz1KuhAQagQjYwFyGi3xmspT5g",
-        "Accept-Profile": "prd_site_n9hi0nkaiwk4",
+        "apikey": SUPABASE_APIKEY,
+        "Authorization": "Bearer " + SUPABASE_APIKEY,
         "Content-Type": "application/json"
       };
 
-      // 1. CARICAMENTO DATI ALL'AVVIO (Read)
+      // 1. CARICAMENTO DATI ALL'AVVIO
       (async function syncOnLoad() {
         try {
           const res = await fetch(SUPABASE_URL + "&select=data", { headers: SUPABASE_HEADERS });
+          if (!res.ok) {
+            console.error("❌ Errore HTTP Lettura:", res.status);
+            return;
+          }
           const rows = await res.json();
           if (rows && rows[0] && rows[0].data) {
             const dataObj = rows[0].data;
+            const dataStr = JSON.stringify(dataObj);
+            
             Object.keys(localStorage).forEach(key => {
               if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
-                localStorage.setItem(key, JSON.stringify(dataObj));
+                localStorage.setItem(key, dataStr);
               }
             });
             if (localStorage.length === 0) {
-              localStorage.setItem("study_tracker_data", JSON.stringify(dataObj));
+              localStorage.setItem("study_tracker_data", dataStr);
             }
+            console.log("✅ Dati caricati con successo da Supabase!");
           }
         } catch (e) {
-          console.log("Errore sync lettura Supabase:", e);
+          console.error("❌ Errore sync lettura Supabase:", e);
         }
       })();
 
-      // 2. SALVATAGGIO AUTOMATICO SU SUPABASE AD OGNI MODIFICA (Write)
+      // 2. SALVATAGGIO AUTOMATICO AD OGNI MODIFICA
       const originalSetItem = localStorage.setItem;
       let syncTimeout = null;
 
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-        if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
+        
+        if (key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
           clearTimeout(syncTimeout);
           syncTimeout = setTimeout(async () => {
             try {
-              let parsedData = JSON.parse(value);
-              await fetch(SUPABASE_URL, {
+              let parsedData = typeof value === "string" ? JSON.parse(value) : value;
+              const response = await fetch(SUPABASE_URL, {
                 method: "PATCH",
                 headers: SUPABASE_HEADERS,
                 body: JSON.stringify({ data: parsedData })
               });
-              console.log("Dati sincronizzati con successo su Supabase!");
+              if (response.ok) {
+                console.log("✅ Dati inviati a Supabase!");
+              } else {
+                console.error("❌ Errore scrittura Supabase:", response.status);
+              }
             } catch (e) {
-              console.log("Errore sync scrittura Supabase:", e);
+              console.error("❌ Errore invio Supabase:", e);
             }
-          }, 500);
+          }, 400);
         }
       };
     </script>
