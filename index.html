@@ -28,124 +28,139 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sync Sicuro Anti-Crash e Anti-Loop -->
+    <!-- Script Sync con Avvio Immediato e Log Visibili -->
     <script>
-      const BIN_ID = "6aeddafaac6210605a726c11";
-      const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
+      (function() {
+        const BIN_ID = "6aeddafaac6210605a726c11";
+        const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
 
-      const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-      const JSONBIN_HEADERS = {
-        "Content-Type": "application/json",
-        "X-Master-Key": API_KEY
-      };
+        const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+        const JSONBIN_HEADERS = {
+          "Content-Type": "application/json",
+          "X-Master-Key": API_KEY
+        };
 
-      let isWriting = false;
-      let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
-      let lastDataHash = "";
-      let pushDebounce = null;
+        let isWriting = false;
+        let lastLocalTimestamp = parseInt(localStorage.getItem("__tracker_ts") || "0", 10);
+        let lastDataHash = "";
+        let pushDebounce = null;
 
-      function getStorageDump() {
-        const dump = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k !== "__tracker_ts") {
-            const v = localStorage.getItem(k);
-            if (v !== null && v !== undefined) dump[k] = v;
+        function getStorageDump() {
+          const dump = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k !== "__tracker_ts") {
+              const v = localStorage.getItem(k);
+              if (v !== null && v !== undefined) dump[k] = v;
+            }
+          }
+          return dump;
+        }
+
+        // INVIA AL CLOUD
+        async function pushState() {
+          if (isWriting) return;
+          
+          const dump = getStorageDump();
+          const currentHash = JSON.stringify(dump);
+
+          if (currentHash === "{}" || currentHash === lastDataHash) return;
+
+          const now = Date.now();
+          lastLocalTimestamp = now;
+          lastDataHash = currentHash;
+          try { localStorage.setItem("__tracker_ts", now.toString()); } catch(e){}
+          
+          isWriting = true;
+
+          try {
+            await fetch(JSONBIN_URL + "?b_ts=" + now, {
+              method: "PUT",
+              headers: JSONBIN_HEADERS,
+              body: JSON.stringify({ updatedAt: now, data: dump }),
+              keepalive: true
+            });
+            console.log("⚡ [Cloud] Dati inviati con successo! TS:", now);
+          } catch (e) {
+            console.error("❌ [Cloud] Errore invio:", e);
+          } finally {
+            setTimeout(() => { isWriting = false; }, 600);
           }
         }
-        return dump;
-      }
 
-      // INVIA AL CLOUD
-      async function pushState() {
-        if (isWriting) return;
-        
-        const dump = getStorageDump();
-        const currentHash = JSON.stringify(dump);
+        // RICEVE DAL CLOUD
+        async function pullState() {
+          if (isWriting) return;
 
-        if (currentHash === "{}" || currentHash === lastDataHash) return;
-
-        const now = Date.now();
-        lastLocalTimestamp = now;
-        lastDataHash = currentHash;
-        try { localStorage.setItem("__tracker_ts", now.toString()); } catch(e){}
-        
-        isWriting = true;
-
-        try {
-          await fetch(JSONBIN_URL, {
-            method: "PUT",
-            headers: JSONBIN_HEADERS,
-            body: JSON.stringify({ updatedAt: now, data: dump }),
-            keepalive: true
-          });
-          console.log("⚡ Salvataggio Cloud completato:", now);
-        } catch (e) {
-          console.error("❌ Errore push:", e);
-        } finally {
-          setTimeout(() => { isWriting = false; }, 800);
-        }
-      }
-
-      // RICEVE DAL CLOUD
-      async function pullState() {
-        if (isWriting) return;
-
-        try {
-          const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
-          if (!res.ok) return;
-          const remote = await res.json();
-
-          if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
-            const remoteTimestamp = remote.record.updatedAt;
-
-            // Inizializza l'hash locale al primo avvio per evitare reload fasulli
-            if (!lastDataHash) {
-              lastDataHash = JSON.stringify(getStorageDump());
+          try {
+            const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
+            if (!res.ok) {
+              console.warn("⚠️ [Cloud] Risposta non OK dal server:", res.status);
+              return;
             }
+            const remote = await res.json();
 
-            if (remoteTimestamp > lastLocalTimestamp) {
+            if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
+              const remoteTimestamp = remote.record.updatedAt;
               const remoteData = remote.record.data;
-              const remoteHash = JSON.stringify(remoteData);
 
-              if (remoteHash !== lastDataHash) {
-                lastLocalTimestamp = remoteTimestamp;
-                lastDataHash = remoteHash;
-                try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
+              if (Object.keys(remoteData).length === 0) return;
 
-                Object.keys(remoteData).forEach(k => {
-                  try { localStorage.setItem(k, remoteData[k]); } catch(e){}
-                });
+              if (!lastDataHash) {
+                lastDataHash = JSON.stringify(getStorageDump());
+              }
 
-                console.log("🔄 Ricevuto aggiornamento dal Cloud, ricarico la pagina...");
-                window.location.reload();
+              console.log("🔍 [Cloud] Controllo sync... Remote TS:", remoteTimestamp, "Local TS:", lastLocalTimestamp);
+
+              if (remoteTimestamp > lastLocalTimestamp) {
+                const remoteHash = JSON.stringify(remoteData);
+
+                if (remoteHash !== lastDataHash) {
+                  lastLocalTimestamp = remoteTimestamp;
+                  lastDataHash = remoteHash;
+                  try { localStorage.setItem("__tracker_ts", remoteTimestamp.toString()); } catch(e){}
+
+                  Object.keys(remoteData).forEach(k => {
+                    try { localStorage.setItem(k, remoteData[k]); } catch(e){}
+                  });
+
+                  console.log("🔄 [Cloud] Ricevute modifiche più recenti! Ricarico la pagina...");
+                  window.location.reload();
+                }
               }
             }
+          } catch (e) {
+            console.error("❌ [Cloud] Errore lettura:", e);
           }
-        } catch (e) {
-          console.error("❌ Errore pull:", e);
         }
-      }
 
-      // Intercetta setItem in modo totalmente trasparente per React
-      const originalSetItem = localStorage.setItem;
-      localStorage.setItem = function(key, value) {
-        try { originalSetItem.apply(this, arguments); } catch(e){}
-        if (key !== "__tracker_ts" && !isWriting) {
+        // Intercetta setItem
+        const originalSetItem = localStorage.setItem;
+        localStorage.setItem = function(key, value) {
+          try { originalSetItem.apply(this, arguments); } catch(e){}
+          if (key !== "__tracker_ts" && !isWriting) {
+            clearTimeout(pushDebounce);
+            pushDebounce = setTimeout(pushState, 300);
+          }
+        };
+
+        // Trigger immediato per iOS/Touch
+        window.addEventListener("touchend", () => {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 500);
-        }
-      };
+          pushDebounce = setTimeout(pushState, 200);
+        }, { passive: true });
 
-      // Avvio controlli
-      pullState();
-      setInterval(pullState, 4000);
+        // AVVIO IMMEDIATO (senza attendere DOMContentLoaded)
+        console.log("🚀 Script Sync Inizializzato!");
+        pullState();
+        setInterval(pullState, 3000);
 
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") pushState();
-        if (document.visibilityState === "visible") pullState();
-      });
-      window.addEventListener("pagehide", pushState);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") pushState();
+          if (document.visibilityState === "visible") pullState();
+        });
+        window.addEventListener("pagehide", pushState);
+      })();
     </script>
   </head>
   <body>
