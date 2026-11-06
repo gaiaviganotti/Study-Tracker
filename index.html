@@ -28,7 +28,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione con Blocco di Avvio -->
+    <!-- Script Sincronizzazione Anti-Loop Definitivo -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -40,21 +40,18 @@
       };
 
       let isSyncing = false;
-      let isInitialBoot = true; // Protezione dal falso salvataggio a ricarica pagina
-      let lastLocalTimestamp = 0;
+      let isInitialBoot = true;
+      let lastLocalTimestamp = parseInt(localStorage.getItem("__sync_ts") || "0", 10);
       let lastDataString = "";
       let pushDebounce = null;
 
-      // Sblocca i salvataggi reali dopo 3 secondi dall'apertura
-      setTimeout(() => {
-        isInitialBoot = false;
-      }, 3000);
+      setTimeout(() => { isInitialBoot = false; }, 2000);
 
       function getStorageDump() {
         const dump = {};
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k) dump[k] = localStorage.getItem(k);
+          if (k && k !== "__sync_ts") dump[k] = localStorage.getItem(k);
         }
         return dump;
       }
@@ -70,6 +67,7 @@
 
         const now = Date.now();
         lastLocalTimestamp = now;
+        localStorage.setItem("__sync_ts", now.toString());
         lastDataString = currentDataString;
         isSyncing = true;
 
@@ -85,9 +83,9 @@
             body: JSON.stringify(payload),
             keepalive: true
           });
-          console.log("⚡ Salvataggio reale inviato al Cloud con timestamp:", now);
+          console.log("⚡ Salvato sul cloud con timestamp:", now);
         } catch (e) {
-          console.error("❌ Errore salvataggio cloud:", e);
+          console.error("❌ Errore scrittura:", e);
         } finally {
           setTimeout(() => { isSyncing = false; }, 800);
         }
@@ -105,19 +103,31 @@
           if (remote && remote.record && remote.record.updatedAt && remote.record.data) {
             const remoteTimestamp = remote.record.updatedAt;
 
+            // Se la prima volta non abbiamo la stringa locale, la memorizziamo senza ricaricare
+            if (!lastDataString) {
+              lastDataString = JSON.stringify(remote.record.data);
+              if (remoteTimestamp > lastLocalTimestamp) {
+                lastLocalTimestamp = remoteTimestamp;
+                localStorage.setItem("__sync_ts", remoteTimestamp.toString());
+              }
+              return;
+            }
+
             if (remoteTimestamp > lastLocalTimestamp) {
               const remoteData = remote.record.data;
               const remoteDataString = JSON.stringify(remoteData);
 
               if (remoteDataString !== lastDataString) {
+                // Aggiorniamo subito il timestamp prima di sovrascrivere per bloccare il loop
+                lastLocalTimestamp = remoteTimestamp;
+                localStorage.setItem("__sync_ts", remoteTimestamp.toString());
+                lastDataString = remoteDataString;
+
                 Object.keys(remoteData).forEach(k => {
                   localStorage.setItem(k, remoteData[k]);
                 });
 
-                lastLocalTimestamp = remoteTimestamp;
-                lastDataString = remoteDataString;
-
-                console.log("🔄 Ricevute modifiche dal Cloud, aggiorno la pagina...");
+                console.log("🔄 Nuovi dati ricevuti! Aggiorno...");
                 window.location.reload();
               }
             }
@@ -127,17 +137,17 @@
         }
       }
 
-      // Intercetta setItem (ignorando il boot iniziale)
+      // Intercetta la scrittura locale
       const originalSetItem = localStorage.setItem;
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
+        if (key === "__sync_ts") return;
         if (!isSyncing && !isInitialBoot) {
           clearTimeout(pushDebounce);
-          pushDebounce = setTimeout(pushState, 500);
+          pushDebounce = setTimeout(pushState, 400);
         }
       };
 
-      // Controlli periodici
       pullState();
       setInterval(pullState, 4000);
 
@@ -145,11 +155,3 @@
         if (document.visibilityState === "hidden") pushState();
         if (document.visibilityState === "visible") pullState();
       });
-      window.addEventListener("pagehide", pushState);
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" crossorigin src="./index-v-hcNyMY.js"></script>
-  </body>
-</html>
