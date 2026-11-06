@@ -27,7 +27,7 @@
     <!-- CSS Locale -->
     <link rel="stylesheet" crossorigin href="./index-C7v-s4oy.css">
 
-    <!-- Script Sincronizzazione Bidirezionale JSONBin -->
+    <!-- Script Sincronizzazione Universale JSONBin -->
     <script>
       const BIN_ID = "6aeddafaac6210605a726c11";
       const API_KEY = "$2a$10$WwSPCntoB1jPrDMz7j7upufH2GlNnLbA6lbhSxUt8hUbSxIv0gkSe";
@@ -38,100 +38,101 @@
         "X-Master-Key": API_KEY
       };
 
-      let lastRemoteHash = "";
-      let isLocalSaving = false;
+      let isSyncing = false;
+      let lastSentSnapshot = "";
 
-      // Funzione per scaricare i dati dal Cloud
-      async function fetchFromCloud() {
-        if (isLocalSaving) return;
+      // Estrae tutto ciò che l'app salva in LocalStorage
+      function getLocalStateDump() {
+        const dump = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k) dump[k] = localStorage.getItem(k);
+        }
+        return dump;
+      }
+
+      // 1. INVIO TUTTI I DATI AL CLOUD
+      async function pushToCloud() {
+        if (isSyncing) return;
+        const stateDump = getLocalStateDump();
+        const strDump = JSON.stringify(stateDump);
+        if (strDump === "{}" || strDump === lastSentSnapshot) return;
+
         try {
-          const res = await fetch(JSONBIN_URL + "/latest", { headers: JSONBIN_HEADERS });
+          isSyncing = true;
+          const res = await fetch(JSONBIN_URL, {
+            method: "PUT",
+            headers: JSONBIN_HEADERS,
+            body: strDump
+          });
+          if (res.ok) {
+            lastSentSnapshot = strDump;
+            console.log("✅ Stato completo salvato sul Cloud!");
+          }
+        } catch (e) {
+          console.error("❌ Errore invio cloud:", e);
+        } finally {
+          setTimeout(() => { isSyncing = false; }, 1000);
+        }
+      }
+
+      // 2. SCARICA I DATI DAL CLOUD
+      async function pullFromCloud() {
+        if (isSyncing) return;
+        try {
+          const res = await fetch(JSONBIN_URL + "/latest?t=" + Date.now(), { headers: JSONBIN_HEADERS });
           if (!res.ok) return;
           const data = await res.json();
-          if (data && data.record && Object.keys(data.record).length > 0 && !data.record.tracker) {
-            const dataStr = JSON.stringify(data.record);
-            
-            // Aggiorna solo se i dati del cloud sono diversi da quelli locali
-            if (dataStr !== lastRemoteHash) {
-              lastRemoteHash = dataStr;
+          if (data && data.record) {
+            const remoteDump = data.record;
+            const remoteStr = JSON.stringify(remoteDump);
+
+            if (remoteStr !== lastSentSnapshot && remoteStr !== "{}" && !remoteDump.tracker) {
               let updated = false;
-              Object.keys(localStorage).forEach(key => {
-                if (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state")) {
-                  if (localStorage.getItem(key) !== dataStr) {
-                    localStorage.setItem(key, dataStr);
-                    updated = true;
-                  }
+              Object.keys(remoteDump).forEach(k => {
+                if (localStorage.getItem(k) !== remoteDump[k]) {
+                  localStorage.setItem(k, remoteDump[k]);
+                  updated = true;
                 }
               });
-              if (localStorage.length === 0) {
-                localStorage.setItem("study_tracker_data", dataStr);
-                updated = true;
-              }
+
               if (updated) {
-                console.log("🔄 Sincronizzato dal Cloud!");
-                // Ricarica la vista se la modifica proviene dal telefono
-                window.dispatchEvent(new Event("storage"));
+                lastSentSnapshot = remoteStr;
+                console.log("🔄 Ricevuto aggiornamento dal Cloud, ricarico la vista...");
+                window.location.reload();
               }
             }
           }
         } catch (e) {
-          console.error("❌ Errore sincronizzazione dal cloud:", e);
+          console.error("❌ Errore lettura cloud:", e);
         }
       }
 
-      // Funzione per inviare i dati al Cloud
-      let syncTimeout = null;
-      function sendToCloud(dataObj) {
-        clearTimeout(syncTimeout);
-        syncTimeout = setTimeout(async () => {
-          try {
-            isLocalSaving = true;
-            const response = await fetch(JSONBIN_URL, {
-              method: "PUT",
-              headers: JSONBIN_HEADERS,
-              body: JSON.stringify(dataObj)
-            });
-            if (response.ok) {
-              lastRemoteHash = JSON.stringify(dataObj);
-              console.log("✅ Modifica inviata al Cloud!");
-            }
-          } catch (e) {
-            console.error("❌ Errore invio cloud:", e);
-          } finally {
-            setTimeout(() => { isLocalSaving = false; }, 1000);
-          }
-        }, 300);
-      }
-
-      // Intercetta la scrittura in locale
+      // Intercetta QUALSIASI modifica o salvataggio fatto dall'app
       const originalSetItem = localStorage.setItem;
+      let pushTimeout = null;
+
       localStorage.setItem = function(key, value) {
         originalSetItem.apply(this, arguments);
-        if (!isLocalSaving && key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
-          try {
-            let parsedData = typeof value === "string" ? JSON.parse(value) : value;
-            sendToCloud(parsedData);
-          } catch(e) {}
+        if (!isSyncing) {
+          clearTimeout(pushTimeout);
+          pushTimeout = setTimeout(pushToCloud, 400);
         }
       };
 
-      // Intercetta la cancellazione in locale
-      const originalRemoveItem = localStorage.removeItem;
-      localStorage.removeItem = function(key) {
-        originalRemoveItem.apply(this, arguments);
-        if (!isLocalSaving && key && (key.includes("study") || key.includes("tracker") || key.includes("kuse") || key.includes("state"))) {
-          fetchFromCloud();
-        }
-      };
+      // Controllo immediato all'apertura
+      pullFromCloud();
 
-      // 1. Carica subito all'avvio
-      fetchFromCloud();
+      // Controllo periodico ogni 3 secondi per catturare le modifiche dell'altro dispositivo
+      setInterval(pullFromCloud, 3000);
 
-      // 2. Controllo automatico ogni 4 secondi (Polling) per ricevere modifiche dall'altro dispositivo
-      setInterval(fetchFromCloud, 4000);
-
-      // 3. Controlla ogni volta che la finestra torna in primo piano (es. sblocco iPhone o cambio scheda PC)
-      window.addEventListener("focus", fetchFromCloud);
+      // Invia subito i dati se l'utente sta per chiudere o cambiare scheda dal telefono
+      window.addEventListener("pagehide", pushToCloud);
+      window.addEventListener("blur", pushToCloud);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") pushToCloud();
+        if (document.visibilityState === "visible") pullFromCloud();
+      });
     </script>
   </head>
   <body>
